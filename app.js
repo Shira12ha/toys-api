@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 
 const express = require("express");
@@ -19,26 +20,62 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ msg: "Invalid JSON" });
   }
 
+  console.error(err);
   res.status(500).json({ msg: "Server error" });
 });
 
-async function startServer() {
-  try {
-    if (!process.env.JWT_SECRET) {
-      throw new Error("JWT_SECRET is missing");
-    }
+// Connect to MongoDB once
+let dbPromise;
 
-    await connectDB();
-
-    const port = process.env.PORT || 3001;
-
-    app.listen(port, () => {
-      console.log("Server running: http://localhost:" + port);
-    });
-  } catch (err) {
-console.error("Server could not start:", err.message);  
-  process.exit(1);
+function ensureDB() {
+  if (!process.env.JWT_SECRET) {
+    return Promise.reject(
+      new Error("JWT_SECRET is missing")
+    );
   }
+
+  if (!dbPromise) {
+    dbPromise = connectDB().catch((err) => {
+      dbPromise = null;
+      throw err;
+    });
+  }
+
+  return dbPromise;
 }
 
-startServer();
+// Vercel
+if (process.env.VERCEL) {
+  module.exports = async (req, res) => {
+    try {
+      await ensureDB();
+      return app(req, res);
+    } catch (err) {
+      console.error("Server error:", err);
+      return res.status(500).json({
+        msg: "Server error"
+      });
+    }
+  };
+} else {
+  // Local development
+  ensureDB()
+    .then(() => {
+      const port = process.env.PORT || 3001;
+
+      app.listen(port, () => {
+        console.log(
+          "Server running on port " + port
+        );
+      });
+    })
+    .catch((err) => {
+      console.error(
+        "Server could not start:",
+        err
+      );
+      process.exit(1);
+    });
+
+  module.exports = app;
+}
